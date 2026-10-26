@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="de"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<meta name="theme-color" content="#203e34"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="apple-mobile-web-app-title" content="Waldpfad">
+<title>Waldpfad – Die Weltreise</title>
+<link rel="manifest" href="manifest.webmanifest"><link rel="apple-touch-icon" href="icons/apple-touch-icon.png"><link rel="icon" href="icons/icon-192.png">
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#203e34;color:#f4e4bc;font:16px system-ui,sans-serif;overscroll-behavior:none}body{overflow:hidden;touch-action:none}#screen{position:fixed;top:env(safe-area-inset-top,0px);right:env(safe-area-inset-right,0px);bottom:env(safe-area-inset-bottom,0px);left:env(safe-area-inset-left,0px)}canvas{display:block;width:100%;height:100%;image-rendering:pixelated;touch-action:none;outline:none}#loading{position:fixed;inset:0;display:grid;place-content:center;text-align:center;background:#203e34;padding:28px;gap:14px}button,.file{font:inherit;color:#f4e4bc;background:#65462f;border:2px solid #ab8052;min-height:46px;padding:10px;cursor:pointer}button:disabled{opacity:.5;cursor:default}dialog{color:#f4e4bc;background:#352d31;border:2px solid #e2b66d;width:min(340px,calc(100% - 24px));max-height:calc(100dvh - env(safe-area-inset-top,0px) - env(safe-area-inset-bottom,0px) - 24px);overflow:auto;touch-action:pan-y}dialog::backdrop{background:#120d16dc}dialog h1{font-size:20px}dialog p{font-size:14px;line-height:1.4}dialog button,.file{display:block;width:100%;margin:9px 0}.file input{display:block;width:100%;margin-top:8px;font-size:13px}#confirm[hidden],#before[hidden]{display:none}#notice{white-space:pre-wrap;overflow-wrap:anywhere}progress{width:100%}
+</style></head><body>
+<div id="screen"><canvas id="canvas" tabindex="0">WebGL 2 wird benötigt.</canvas></div>
+<div id="loading"><strong>WALDPFAD – DIE WELTREISE</strong><span id="status">Offline-Dateien werden vorbereitet …</span><progress id="progress"></progress><p>Beim ersten Start bitte online bleiben.</p></div>
+<dialog id="data"><h1>Waldpfad 0.2</h1><p id="offline"></p><p>Safari: Teilen → Zum Home-Bildschirm. Danach das neue Symbol öffnen und den ersten Start online vollständig abwarten.</p><p>Browserdaten können gelöscht werden. Sichere deine drei Spielstände regelmäßig als Datei außerhalb des Browsers. Derselbe HTTPS-Ursprung und derselbe App-Pfad müssen für Updates erhalten bleiben.</p>
+<button id="backup">Alle drei Spielstände sichern</button><label class="file">Sicherung zum Import auswählen<input id="upload" type="file" accept=".json,application/json"></label><p id="notice" aria-live="polite"></p><button id="before" hidden>Sicherheitskopie vor Import herunterladen</button><button id="confirm" hidden disabled>Geprüfte Spielstände ersetzen</button><button id="close">Schließen</button></dialog>
+<script>
+// Browser-only file transport; GameSession remains the sole profile validator.
+window.WaldpfadWeb={callback:null,pending:null,connectGame(fn){this.callback=fn},reply(text){if(this.pending){this.pending(JSON.parse(text));this.pending=null}},request(action,extra={}){if(!this.callback)return Promise.reject(Error('Spiel wird noch geladen.'));if(this.pending)return Promise.reject(Error('Bitte laufenden Vorgang abwarten.'));return new Promise(resolve=>{this.pending=resolve;this.callback(JSON.stringify({action,...extra}))})},openData(){document.querySelector('#data').showModal();updateStatus()}};
+const $=s=>document.querySelector(s);let prepared=null;
+function download(text,name){const url=URL.createObjectURL(new Blob([text],{type:'application/json'}));const a=document.createElement('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000)}
+function dateName(){return new Date().toISOString().replace(/[:.]/g,'-')}
+function notice(text){$('#notice').textContent=text}
+function updateStatus(){$('#offline').textContent=window.offlineReady?'Offline-Dateien vollständig gespeichert.':'Offline-Einrichtung noch nicht bestätigt.';navigator.serviceWorker?.getRegistration().then(r=>{if(r?.waiting)$('#offline').textContent+=' Update bereit: Alle Waldpfad-Fenster schließen und danach neu öffnen.'})}
+$('#close').onclick=()=>$('#data').close();
+$('#backup').onclick=async()=>{try{const result=await WaldpfadWeb.request('backup');if(result.error)throw Error(result.error);download(result.text,'Waldpfad-'+dateName()+'.json');notice('Sicherungsdatei in Dateien aufbewahren.')}catch(e){notice(e.message)}};
+$('#upload').onchange=async event=>{prepared=null;$('#before').hidden=true;$('#confirm').hidden=true;$('#confirm').disabled=true;try{const file=event.target.files[0];if(!file)return;if(file.size>8*1024*1024)throw Error('Datei ist zu groß.');const result=await WaldpfadWeb.request('preview',{text:await file.text()});if(result.error)throw Error(result.error);prepared=result;notice('Dieser Import ersetzt die Spielstände '+result.slots.join(', ')+'. Leere Plätze in der Sicherung verändern keine bestehenden Plätze. Zuerst die Sicherheitskopie herunterladen, dann ausdrücklich bestätigen.');$('#before').hidden=false;$('#confirm').hidden=false}catch(e){notice(e.message)}};
+$('#before').onclick=()=>{if(!prepared)return;download(prepared.before,'Waldpfad-vor-Import-'+dateName()+'.json');$('#confirm').disabled=false};
+$('#confirm').onclick=async()=>{if(!prepared)return;$('#confirm').disabled=true;try{const result=await WaldpfadWeb.request('restore',{token:prepared.token});if(result.error)throw Error(result.error);prepared=null;$('#before').hidden=true;$('#confirm').hidden=true;notice(result.message)}catch(e){notice(e.message)}};
+document.addEventListener('visibilitychange',()=>{if(document.hidden&&WaldpfadWeb.callback&&!WaldpfadWeb.pending)WaldpfadWeb.request('checkpoint').catch(()=>{})});
+document.addEventListener('gesturestart',event=>event.preventDefault(),{passive:false});
+$('#canvas').addEventListener('contextmenu',event=>event.preventDefault());
+$('#canvas').addEventListener('touchmove',event=>event.preventDefault(),{passive:false});
+$('#canvas').addEventListener('pointerdown',()=>{navigator.storage?.persist?.().catch(()=>{})},{once:true});
+</script>
+<script src="releases/e8b188f735fa8be1/game.js"></script><script>
+const config={"args":[],"canvasResizePolicy":0,"emscriptenPoolSize":8,"ensureCrossOriginIsolationHeaders":false,"executable":"releases/e8b188f735fa8be1/game","experimentalVK":false,"fileSizes":{"releases/e8b188f735fa8be1/game.pck":1533000,"releases/e8b188f735fa8be1/game.wasm":39514754},"focusCanvas":true,"gdextensionLibs":[],"godotPoolSize":4};
+config.canvas=$('#canvas');config.canvasResizePolicy=0;config.serviceWorker='';config.ensureCrossOriginIsolationHeaders=false;
+function fit(){const r=$('#screen').getBoundingClientRect(),d=Math.min(devicePixelRatio||1,2);config.canvas.width=Math.round(r.width*d);config.canvas.height=Math.round(r.height*d)}
+fit();new ResizeObserver(fit).observe($('#screen'));
+window.engine=new Engine(config);
+(async()=>{try{
+if(!isSecureContext||!('serviceWorker' in navigator))throw Error('Bitte über HTTPS öffnen. Für lokale Tests ist localhost erlaubt.');
+const missing=Engine.getMissingFeatures({threads:false});if(missing.length)throw Error('Browser benötigt: '+missing.join(', '));
+const registration=await navigator.serviceWorker.register('sw.js',{scope:'./',updateViaCache:'none'});await navigator.serviceWorker.ready;
+if(!navigator.serviceWorker.controller)await new Promise(resolve=>navigator.serviceWorker.addEventListener('controllerchange',resolve,{once:true}));
+await new Promise((resolve,reject)=>{const channel=new MessageChannel();const timer=setTimeout(()=>reject(Error('Offline-Einrichtung noch nicht vollständig. Verbindung prüfen und erneut öffnen.')),120000);channel.port1.onmessage=event=>{clearTimeout(timer);channel.port1.close();event.data.ready?resolve():reject(Error(event.data.error))};navigator.serviceWorker.controller.postMessage('prepare-offline',[channel.port2])});
+window.offlineReady=true;$('#status').textContent='Spiel wird geladen …';
+await engine.startGame({onProgress:(current,total)=>{if(total){$('#progress').max=total;$('#progress').value=current}}});
+$('#loading').remove();config.canvas.focus();registration.update().catch(()=>{});
+}catch(error){$('#status').textContent=error.message;$('#progress').hidden=true;console.error(error)}})();
+</script></body></html>
+
